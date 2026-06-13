@@ -38,7 +38,7 @@ class NutsApp(App):
     """N.U.T.S. - Lazygit style .NET creator"""
     
     CSS = """
-    Screen { background: $surface-darken-3; }
+    Screen { background: transparent; }
     
     #top-panes { height: 70%; }
     #bottom-pane { height: 30%; margin-top: 1; }
@@ -46,42 +46,48 @@ class NutsApp(App):
     .pane { 
         width: 1fr; 
         height: 100%; 
-        border: round $primary-muted; 
-        border-title-color: $text-muted;
-        background: $panel;
+        border: round #555555; 
+        border-title-color: #888888;
+        background: transparent;
         padding: 0 1;
-        transition: border 200ms;
+        transition: border 100ms;
     }
     
-    /* NORMAL MODE: Blue/Green Glow */
+    /* Active Pane Focus */
     .pane:focus-within { 
-        border: heavy $accent; 
-        border-title-color: $accent;
-        background: $surface;
+        border: round #00ff00; 
+        border-title-color: #00ff00;
+        border-title-style: bold;
     }
     
-    /* INSERT MODE: Warning/Yellow Glow for text inputs */
-    #pane1-names:focus-within {
-        border: heavy $warning;
-        border-title-color: $warning;
+    /* Input Focus Focus */
+    #pane3-details:focus-within {
+        border: round #ffff00;
+        border-title-color: #ffff00;
     }
     
-    #pane1-names { width: 0.8fr; }
-    #pane2-templates { width: 1.2fr; }
-    #pane3-options { width: 1.2fr; }
+    #pane1-templates { width: 1fr; }
+    #pane2-options { width: 1.2fr; }
+    #pane3-details { width: 1.2fr; }
     
-    Input { margin-top: 1; margin-bottom: 2; border: tall $primary-muted; }
-    Input:focus { border: tall $warning; }
+    Input { 
+        margin-top: 1; 
+        margin-bottom: 2; 
+        border: tall #555555; 
+        background: #222222;
+    }
+    Input:focus { border: tall #ffff00; }
+    
     OptionList, SelectionList { background: transparent; border: none; }
-    RichLog { background: #0c0c0c; color: #00ff00; padding: 0 1; }
-    .help-text { color: $text-muted; text-align: center; margin-top: 2; }
+    RichLog { background: transparent; color: #cccccc; padding: 0 1; }
+    
+    .help-text { color: #888888; text-align: center; margin-top: 2; }
     """
 
-    # Removed hjkl from here so they don't break text typing!
     BINDINGS = [
         ("q", "quit", "Quit"),
         ("c", "create", "Execute Command"),
-        ("escape", "escape_input", "Normal Mode (Esc)"),
+        ("escape", "unfocus_input", "Unfocus Input (Esc)"),
         ("1", "focus_pane1", "Pane 1"),
         ("2", "focus_pane2", "Pane 2"),
         ("3", "focus_pane3", "Pane 3"),
@@ -96,24 +102,24 @@ class NutsApp(App):
         
         with Vertical():
             with Horizontal(id="top-panes"):
-                with Vertical(id="pane1-names", classes="pane"):
-                    yield Label("1. Details", classes="help-text")
+                with Vertical(id="pane1-templates", classes="pane") as p1:
+                    p1.border_title = "1. Templates"
+                    template_list = OptionList(id="template_list")
+                    for key, data in DOTNET_TEMPLATES.items():
+                        template_list.add_option(Option(data["display"], id=key))
+                    yield template_list
+
+                with Vertical(id="pane2-options", classes="pane") as p2:
+                    p2.border_title = "2. Options ([x/space/enter] to toggle)"
+                    yield SelectionList(id="flag_list")
+
+                with Vertical(id="pane3-details", classes="pane") as p3:
+                    p3.border_title = "3. Details"
                     yield Label("Solution Name:")
                     yield Input(placeholder="e.g. AcmeCorp", id="sln_name")
                     yield Label("Project Name:")
                     yield Input(placeholder="e.g. AcmeCorp.Api", id="proj_name")
                     yield Label("[bold]Ready?[/]\nPress 'c' to build.", markup=True, classes="help-text")
-                
-                with Vertical(id="pane2-templates", classes="pane"):
-                    yield Label("2. Templates", classes="help-text")
-                    template_list = OptionList(id="template_list")
-                    for key, data in DOTNET_TEMPLATES.items():
-                        template_list.add_option(Option(data["display"], id=key))
-                    yield template_list
-                
-                with Vertical(id="pane3-options", classes="pane"):
-                    yield Label("3. Options ([Space] to toggle)", classes="help-text")
-                    yield SelectionList(id="flag_list")
 
             with Vertical(id="bottom-pane", classes="pane") as log_pane:
                 log_pane.border_title = "Execution Log"
@@ -124,57 +130,89 @@ class NutsApp(App):
     def on_mount(self) -> None:
         self.update_flags("console")
         self.log_message("[bold blue]N.U.T.S initialized.[/]")
-        self.log_message("Navigate with [bold]h/l[/] or [bold]1/2/3[/]. Toggle flags with [bold]Space[/]. Press [bold]c[/] to create.")
-        self.action_focus_pane2()
+        self.log_message("Navigate with [bold]h/j/k/l[/]. Toggle flags with [bold]x/space/enter[/]. Press [bold]c[/] to create.")
+        self.action_focus_pane1()
 
-    # --- TRUE VIM MODE ROUTER ---
-    
-    def on_key(self, event: events.Key) -> None:
-        """Intercepts key presses before they do anything else."""
+    # --- INPUT INTERCEPTION & NAVIGATION ---
+ 
+    @on(events.Key)
+    def handle_keys(self, event: events.Key) -> None:
+        """Intercepts key presses for navigation and selection."""
         
-        # INSERT MODE: If focused on a text box, let the user type freely!
+        # If the user is typing in a text box, ignore global keybindings
         if isinstance(self.focused, Input):
             return
 
-        # NORMAL MODE: Safe to use Vim motions
-        if event.character == "h":
+        # PANE NAVIGATION (h, l)
+        if event.key == "h":
             self.action_focus_left()
-        elif event.character == "l":
+        elif event.key == "l":
             self.action_focus_right()
-        # Note: 'j' and 'k' scroll natively inside the Option/Selection lists!
-        # If we intercepted them here, the lists would break.
-
-    # --- PANE NAVIGATION LOGIC ---
+            
+        # LIST SCROLLING (j, k)
+        elif event.key == "j":
+            if hasattr(self.focused, "action_cursor_down"):
+                self.focused.action_cursor_down()
+        elif event.key == "k":
+            if hasattr(self.focused, "action_cursor_up"):
+                self.focused.action_cursor_up()
+            
+        # SELECTION (x, space, enter)
+        elif event.key in ("x", "space", "enter"):
+            if isinstance(self.focused, SelectionList):
+                # Trigger Textual's native select action on the highlighted item
+                self.focused.action_select()
+                event.prevent_default()
+                
+            elif isinstance(self.focused, OptionList):
+                # Slide right to the options pane upon selecting a template
+                self.action_focus_pane2()
+                event.prevent_default()
+    
+    # --- PANE ROUTING ---
     
     def get_current_pane_index(self) -> int:
         focused = self.focused
-        if not focused: return 2
-        if focused.id in ["sln_name", "proj_name"]: return 1
-        if focused.id == "template_list": return 2
-        if focused.id == "flag_list": return 3
-        return 2
+        if not focused: return 1
+        if focused.id == "template_list": return 1
+        if focused.id == "flag_list": return 2
+        if focused.id in ["sln_name", "proj_name"]: return 3
+        return 1
 
     def action_focus_left(self):
         idx = self.get_current_pane_index()
-        if idx == 3: self.action_focus_pane2()
-        elif idx == 2: self.action_focus_pane1()
+        if idx == 3: 
+            # If options are disabled (e.g. Class Lib), skip straight back to Pane 1
+            if self.query_one("#flag_list", SelectionList).disabled:
+                self.action_focus_pane1()
+            else:
+                self.action_focus_pane2()
+        elif idx == 2: 
+            self.action_focus_pane1()
 
     def action_focus_right(self):
         idx = self.get_current_pane_index()
-        if idx == 1: self.action_focus_pane2()
-        elif idx == 2: self.action_focus_pane3()
+        if idx == 1: 
+            self.action_focus_pane2()
+        elif idx == 2: 
+            self.action_focus_pane3()
 
     def action_focus_pane1(self):
-        self.query_one("#sln_name").focus()
-
-    def action_focus_pane2(self):
         self.query_one("#template_list").focus()
 
-    def action_focus_pane3(self):
-        self.query_one("#flag_list").focus()
+    def action_focus_pane2(self):
+        flag_list = self.query_one("#flag_list", SelectionList)
+        # Auto-skip to details pane if no options exist for this template
+        if not flag_list.disabled:
+            flag_list.focus()
+        else:
+            self.action_focus_pane3()
 
-    def action_escape_input(self):
-        """Drops you out of Insert Mode back to Normal Mode."""
+    def action_focus_pane3(self):
+        self.query_one("#sln_name").focus()
+
+    def action_unfocus_input(self):
+        """Drops focus out of the text boxes."""
         self.action_focus_pane2()
 
     # --- APP LOGIC ---
@@ -201,9 +239,9 @@ class NutsApp(App):
         proj_name = self.query_one("#proj_name", Input).value.strip()
 
         if not sln_name or not proj_name:
-            self.log_message("\n[bold red]Error:[/] You must provide a Solution Name and Project Name in Pane 1!")
+            self.log_message("\n[bold red]Error:[/] You must provide a Solution Name and Project Name in Pane 3!")
             self.app.bell()
-            self.action_focus_pane1()
+            self.action_focus_pane3()
             return
 
         template = self.selected_template_key
