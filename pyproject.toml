@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nuts-cli"
+version = "1.0.0"
+description = "Lazygit style .NET creator"
+dependencies = [
+    "textual"
+]
+
+[project.scripts]
+# This tells Linux: "When I type 'nuts', run the 'main' function inside 'nuts.py'"
+nuts = "nuts:main"
+
+[tool.setuptools]
+# This tells the installer to look for your single nuts.py file in the root folder
+py-modules = ["nuts"]

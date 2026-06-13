@@ -283,6 +283,9 @@ class NutsApp(App):
         log = self.query_one("#terminal_log", RichLog)
         log.write(message)
 
-if __name__ == "__main__":
+def main():
     app = NutsApp()
     app.run()
+
+if __name__ == "__main__":
+    main()
